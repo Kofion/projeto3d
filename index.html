@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cena 3D FPS</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-family: Arial, sans-serif;
+            pointer-events: none;
+            text-shadow: 1px 1px 1px black;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="info">Use WASD para mover, ESPAÇO/CTRL para subir e descer, mouse para olhar ao redor (clique para travar o
+        mouse, e ESC para destravar)</div>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/loaders/TextureLoader.js"></script>
+
+    <script>
+        // Inicialização da cena
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x333333);
+
+        // Câmera
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 5, 10);
+
+        // Variáveis para controle estilo FPS
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        let moveUp = false;
+        let moveDown = false;
+        let isMouseLocked = false;
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        const PI_2 = Math.PI / 2;
+
+        // Configuração do movimento do mouse
+        let pitch = 0;
+        let yaw = 0;
+
+        // Configuração da cena
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Iluminação
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 10, 7);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 1024;
+        directionalLight.shadow.mapSize.height = 1024;
+        scene.add(directionalLight);
+
+        // Adicionando objetos à cena
+        const boxGeometry = new THREE.BoxGeometry(2, 1, 1.5);
+        const boxMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000, shininess: 100 });
+        const box = new THREE.Mesh(boxGeometry, boxMaterial);
+        box.position.set(-3, 0.5, 0);
+        box.castShadow = true;
+        scene.add(box);
+
+        const sphereGeometry = new THREE.SphereGeometry(1, 32, 32);
+        const sphereMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00, shininess: 50 });
+        const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        sphere.position.set(0, 1, 0);
+        sphere.castShadow = true;
+        scene.add(sphere);
+
+        const coneGeometry = new THREE.ConeGeometry(1, 2, 32);
+        const textureLoader = new THREE.TextureLoader();
+        const coneMaterial = new THREE.MeshPhongMaterial({
+            map: textureLoader.load('imagem/Yoda.jpg'),
+            shininess: 30,
+        });
+        const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+        cone.rotation.y = Math.PI;
+        cone.position.set(3, 1, 0);
+        cone.castShadow = true;
+        scene.add(cone);
+
+        const floorGeometry = new THREE.PlaneGeometry(20, 20);
+        const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.8 });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // Controles de teclado
+        document.addEventListener('keydown', (event) => {
+            switch (event.key.toLowerCase()) {
+                case 'w': moveForward = true; break;
+                case 's': moveBackward = true; break;
+                case 'a': moveLeft = true; break;
+                case 'd': moveRight = true; break;
+                case ' ': moveUp = true; break;       // Barra de espaço para subir
+                case 'control': moveDown = true; break; // CTRL para descer
+            }
+        });
+
+        document.addEventListener('keyup', (event) => {
+            switch (event.key.toLowerCase()) {
+                case 'w': moveForward = false; break;
+                case 's': moveBackward = false; break;
+                case 'a': moveLeft = false; break;
+                case 'd': moveRight = false; break;
+                case ' ': moveUp = false; break;       // Barra de espaço
+                case 'control': moveDown = false; break; // CTRL
+            }
+        });
+
+        // Controles do mouse
+        document.addEventListener('click', () => {
+            renderer.domElement.requestPointerLock =
+                renderer.domElement.requestPointerLock ||
+                renderer.domElement.mozRequestPointerLock ||
+                renderer.domElement.webkitRequestPointerLock;
+
+            renderer.domElement.requestPointerLock();
+        });
+
+        document.addEventListener('pointerlockchange', lockChangeAlert);
+        document.addEventListener('mozpointerlockchange', lockChangeAlert);
+        document.addEventListener('webkitpointerlockchange', lockChangeAlert);
+
+        function lockChangeAlert() {
+            if (document.pointerLockElement === renderer.domElement ||
+                document.mozPointerLockElement === renderer.domElement ||
+                document.webkitPointerLockElement === renderer.domElement) {
+                isMouseLocked = true;
+                document.addEventListener('mousemove', updatePosition);
+            } else {
+                isMouseLocked = false;
+                document.removeEventListener('mousemove', updatePosition);
+            }
+        }
+
+        function updatePosition(e) {
+            if (!isMouseLocked) return;
+
+            const movementX = e.movementX || e.mozMovementX || e.webkitMovementX || 0;
+            const movementY = e.movementY || e.mozMovementY || e.webkitMovementY || 0;
+
+            yaw -= movementX * 0.002;
+            pitch -= movementY * 0.002;
+            pitch = Math.max(-PI_2, Math.min(PI_2, pitch));
+        }
+
+        // Animação dos objetos
+        function animateObjects() {
+            sphere.position.z = Math.sin(Date.now() * 0.002) * 5;
+            box.rotation.y += 0.02
+            const scale = 1 + Math.sin(Date.now() * 0.002) * 0.2;
+            cone.scale.set(scale, scale, scale);
+        }
+
+        // Movimento da câmera
+        function updateCamera(delta) {
+            const moveSpeed = delta * 10.0;
+            const verticalSpeed = delta * 10.0;
+
+            // Aplica atrito
+            velocity.x -= velocity.x * 10.0 * delta;
+            velocity.z -= velocity.z * 10.0 * delta;
+            velocity.y -= velocity.y * 10.0 * delta;
+
+            // Movimento local (WASD)
+            const move = new THREE.Vector3();
+            if (moveForward) move.z -= 1;
+            if (moveBackward) move.z += 1;
+            if (moveLeft) move.x -= 1;
+            if (moveRight) move.x += 1;
+
+            move.normalize();
+            move.applyQuaternion(camera.quaternion);
+            velocity.add(move.multiplyScalar(moveSpeed));
+
+            // Movimento vertical (ESPAÇO/CTRL)
+            if (moveUp) velocity.y += verticalSpeed;
+            if (moveDown) velocity.y -= verticalSpeed;
+
+            camera.position.add(velocity);
+
+            camera.rotation.set(pitch, yaw, 0, 'YXZ');
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Loop de animação
+        let prevTime = performance.now();
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+            prevTime = time;
+
+            animateObjects();
+            updateCamera(delta);
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+
+</html>
